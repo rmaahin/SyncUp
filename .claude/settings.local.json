@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(for f in \"C:/Users/rmaah/Documents/Projects/agentic-project-manager/SyncUp/backend/src/__init__.py\" \"C:/Users/rmaah/Documents/Projects/agentic-project-manager/SyncUp/backend/src/state/__init__.py\" \"C:/Users/rmaah/Documents/Projects/agentic-project-manager/SyncUp/backend/src/graph/__init__.py\")",
+      "Bash(do echo \"=== $f ===\")",
+      "Read(//c/Users/rmaah/Documents/Projects/agentic-project-manager/SyncUp/**)",
+      "Bash(done)",
+      "Bash(pip show:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(PYTHONPATH=src python:*)"
+    ]
+  }
+}
