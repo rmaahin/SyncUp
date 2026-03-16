@@ -1,0 +1,6 @@
+HTTP/1.1 307 Temporary Redirect
+date: Thu, 12 Mar 2026 23:35:38 GMT
+server: uvicorn
+content-length: 0
+location: http://localhost:8000/api/onboarding/profile
+

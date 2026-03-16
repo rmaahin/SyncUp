@@ -10,6 +10,10 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 
+from agents.delegation import delegation as _delegation
+from agents.publishing import publishing as _publishing
+from agents.task_decomposition import task_decomposition as _task_decomposition
+from evaluators.equity_evaluator import equity_evaluator as _equity_evaluator
 from graph.routing import (
     after_equity_eval,
     after_progress_check,
@@ -29,16 +33,6 @@ def supervisor(state: SyncUpState) -> dict[str, Any]:
     return {}
 
 
-def task_decomposition(state: SyncUpState) -> dict[str, Any]:
-    """Task Decomposition agent node."""
-    return {}
-
-
-def delegation(state: SyncUpState) -> dict[str, Any]:
-    """Delegation agent node."""
-    return {}
-
-
 def progress_tracking(state: SyncUpState) -> dict[str, Any]:
     """Progress Tracking agent node."""
     return {}
@@ -51,16 +45,6 @@ def conflict_resolution(state: SyncUpState) -> dict[str, Any]:
 
 def meeting_coordinator(state: SyncUpState) -> dict[str, Any]:
     """Meeting Coordinator agent node."""
-    return {}
-
-
-def publishing(state: SyncUpState) -> dict[str, Any]:
-    """Publishing agent node (deterministic, no LLM)."""
-    return {}
-
-
-def equity_evaluator(state: SyncUpState) -> dict[str, Any]:
-    """Workload Equity Evaluator (LLM-as-a-Judge)."""
     return {}
 
 
@@ -85,13 +69,13 @@ def report_generator(state: SyncUpState) -> dict[str, Any]:
 
 _NODE_FUNCTIONS = {
     "supervisor": supervisor,
-    "task_decomposition": task_decomposition,
-    "delegation": delegation,
+    "task_decomposition": _task_decomposition,
+    "delegation": _delegation,
     "progress_tracking": progress_tracking,
     "conflict_resolution": conflict_resolution,
     "meeting_coordinator": meeting_coordinator,
-    "publishing": publishing,
-    "equity_evaluator": equity_evaluator,
+    "publishing": _publishing,
+    "equity_evaluator": _equity_evaluator,
     "tone_evaluator": tone_evaluator,
     "human_review": human_review,
     "report_generator": report_generator,
@@ -128,8 +112,8 @@ def build_graph() -> Any:
         },
     )
 
-    # -- Task decomposition -> equity evaluator --
-    builder.add_edge("task_decomposition", "equity_evaluator")
+    # -- Task decomposition -> delegation --
+    builder.add_edge("task_decomposition", "delegation")
 
     # -- Equity evaluator (conditional) -> delegation | human_review --
     builder.add_conditional_edges(
@@ -141,11 +125,11 @@ def build_graph() -> Any:
         },
     )
 
-    # -- Human review -> delegation --
-    builder.add_edge("human_review", "delegation")
+    # -- Human review -> supervisor --
+    builder.add_edge("human_review", "supervisor")
 
-    # -- Delegation -> supervisor --
-    builder.add_edge("delegation", "supervisor")
+    # -- Delegation -> equity evaluator --
+    builder.add_edge("delegation", "equity_evaluator")
 
     # -- Progress tracking (conditional) -> conflict_resolution | end --
     builder.add_conditional_edges(

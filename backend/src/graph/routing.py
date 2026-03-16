@@ -15,8 +15,17 @@ def supervisor_router(state: "SyncUpState") -> str:
 
 
 def after_equity_eval(state: "SyncUpState") -> str:
-    """Route after the equity evaluator — human review or delegation."""
-    return "human_review"
+    """Route after the equity evaluator — human review or re-delegation.
+
+    Routes to ``human_review`` if the evaluation passed or the maximum
+    number of re-delegation attempts (3) has been reached.  Otherwise
+    routes back to ``delegation`` for re-optimization.
+    """
+    if state.equity_result is not None and state.equity_result.balanced:
+        return "human_review"
+    if state.equity_retries >= 3:
+        return "human_review"
+    return "delegation"
 
 
 def after_tone_eval(state: "SyncUpState") -> str:

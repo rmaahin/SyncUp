@@ -10,8 +10,8 @@ syncup/
 │   │                           # progress_tracking.py, conflict_resolution.py,
 │   │                           # meeting_coordinator.py, publishing.py (deterministic)
 │   ├── evaluators/             # equity_evaluator.py, tone_evaluator.py
-│   ├── mcp/                    # client.py (MultiServerMCPClient), google_calendar.py,
-│   │                           # google_docs.py, github.py
+│   ├── mcp_layer/              # client.py (MultiServerMCPClient), google_calendar.py,
+│   │                           # google_docs.py, github.py  (renamed from mcp/ to avoid shadowing pip mcp package)
 │   ├── integrations/           # trello.py (REST client), webhooks.py (handlers)
 │   ├── guardrails/             # sanitizer.py, state_validator.py, nemo_rails.py
 │   ├── graph/                  # main.py (StateGraph definition), routing.py (edges)

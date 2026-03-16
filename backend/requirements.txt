@@ -4,18 +4,18 @@ uvicorn[standard]==0.32.1
 pydantic==2.10.4
 python-dotenv==1.0.1
 
-# LangGraph / LangChain ecosystem (all 0.3.x aligned)
-langgraph==0.2.60
-langgraph-checkpoint-postgres==2.0.9
-langchain==0.3.14
-langchain-core==0.3.29
-langchain-community==0.3.14
-langchain-groq==0.2.4
-langchain-mcp-adapters==0.1.1
-langsmith==0.2.10
+# LangGraph / LangChain ecosystem (compatible range)
+langgraph>=0.2.60,<1.0
+langgraph-checkpoint-postgres>=2.0.9,<3.0
+langchain>=0.3.14,<0.4
+langchain-core>=0.3.33,<0.4
+langchain-community>=0.3.14,<0.4
+langchain-groq>=0.2.4,<1.0
+langchain-mcp-adapters>=0.1.1,<0.2.0
+langsmith>=0.2.10,<1.0
 
-# Guardrails
-nemoguardrails==0.11.0
+# Guardrails (requires C++ build tools on Windows — install separately)
+# nemoguardrails==0.11.0
 
 # Database
 asyncpg==0.30.0

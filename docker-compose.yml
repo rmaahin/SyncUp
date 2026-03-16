@@ -10,8 +10,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      gcal-mcp:
+        condition: service_started
     volumes:
       - ./backend/src:/app/src
+      - ./backend/scripts:/app/scripts
 
   frontend:
     build: ./frontend
@@ -25,6 +28,14 @@ services:
       - ./frontend/app:/app/app
       - ./frontend/components:/app/components
       - ./frontend/lib:/app/lib
+
+  gcal-mcp:
+    build: ./mcp-servers/google-calendar
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./mcp-servers/google-calendar/credentials.json:/app/credentials.json:ro
+      - ./mcp-servers/google-calendar/token.json:/app/token.json
 
   postgres:
     image: postgres:16.6-alpine

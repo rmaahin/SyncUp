@@ -1,18 +1,18 @@
 """Tests for the LangGraph graph skeleton."""
 
+from agents.delegation import delegation
+from agents.publishing import publishing
+from agents.task_decomposition import task_decomposition
+from evaluators.equity_evaluator import equity_evaluator
 from graph.main import (
     build_graph,
     conflict_resolution,
-    delegation,
-    equity_evaluator,
     graph,
     human_review,
     meeting_coordinator,
     progress_tracking,
-    publishing,
     report_generator,
     supervisor,
-    task_decomposition,
     tone_evaluator,
 )
 from graph.routing import (
@@ -22,7 +22,7 @@ from graph.routing import (
     after_tone_eval,
     supervisor_router,
 )
-from state.schema import SyncUpState
+from state.schema import EquityResult, SyncUpState
 
 
 # ---------------------------------------------------------------------------
@@ -53,9 +53,12 @@ class TestPlaceholderNodes:
         assert supervisor(SyncUpState()) == {}
 
     def test_task_decomposition(self) -> None:
-        assert task_decomposition(SyncUpState()) == {}
+        # Real agent returns empty task_array for empty brief (not a placeholder)
+        result = task_decomposition(SyncUpState())
+        assert result == {"task_array": [], "dependency_graph": {}}
 
     def test_delegation(self) -> None:
+        # Real agent returns empty dict when no tasks exist.
         assert delegation(SyncUpState()) == {}
 
     def test_progress_tracking(self) -> None:
@@ -67,11 +70,16 @@ class TestPlaceholderNodes:
     def test_meeting_coordinator(self) -> None:
         assert meeting_coordinator(SyncUpState()) == {}
 
-    def test_publishing(self) -> None:
-        assert publishing(SyncUpState()) == {}
+    async def test_publishing(self) -> None:
+        # Real agent returns early with failed status when delegation_matrix is empty.
+        result = await publishing(SyncUpState())
+        assert result["publishing_status"].trello == "failed"
 
     def test_equity_evaluator(self) -> None:
-        assert equity_evaluator(SyncUpState()) == {}
+        # Real evaluator returns balanced=True when no tasks exist.
+        result = equity_evaluator(SyncUpState())
+        assert result["equity_result"].balanced is True
+        assert result["equity_retries"] == 1
 
     def test_tone_evaluator(self) -> None:
         assert tone_evaluator(SyncUpState()) == {}
@@ -95,9 +103,31 @@ class TestRoutingStubs:
         result = supervisor_router(SyncUpState())
         assert result == "__end__"
 
-    def test_after_equity_eval(self) -> None:
-        result = after_equity_eval(SyncUpState())
-        assert result == "human_review"
+    def test_after_equity_eval_balanced(self) -> None:
+        state = SyncUpState(
+            equity_result=EquityResult(balanced=True, reasoning="ok"),
+            equity_retries=1,
+        )
+        assert after_equity_eval(state) == "human_review"
+
+    def test_after_equity_eval_max_retries(self) -> None:
+        state = SyncUpState(
+            equity_result=EquityResult(balanced=False, reasoning="bad"),
+            equity_retries=3,
+        )
+        assert after_equity_eval(state) == "human_review"
+
+    def test_after_equity_eval_retry(self) -> None:
+        state = SyncUpState(
+            equity_result=EquityResult(balanced=False, reasoning="bad"),
+            equity_retries=1,
+        )
+        assert after_equity_eval(state) == "delegation"
+
+    def test_after_equity_eval_no_result(self) -> None:
+        # No equity_result yet — should route to delegation.
+        state = SyncUpState(equity_retries=0)
+        assert after_equity_eval(state) == "delegation"
 
     def test_after_tone_eval(self) -> None:
         result = after_tone_eval(SyncUpState())

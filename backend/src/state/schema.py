@@ -171,12 +171,29 @@ class AvailabilityChange(BaseModel):
     triggered_redelegation: bool = False
 
 
+class EquityResult(BaseModel):
+    """Structured output from the Workload Equity Evaluator."""
+
+    balanced: bool
+    reasoning: str = ""
+    violations: list[str] = Field(default_factory=list)
+
+
 class ProjectTimeline(BaseModel):
     """Project-level timeline data."""
 
     milestones: list[Milestone] = Field(default_factory=list)
     burn_down_targets: list[BurnDownTarget] = Field(default_factory=list)
     buffer_periods: list[DateRange] = Field(default_factory=list)
+
+
+class PublishingStatus(BaseModel):
+    """Tracks the outcome of each publishing target."""
+
+    trello: str = "pending"
+    calendar: str = "pending"
+    docs: str = "pending"
+    errors: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +217,8 @@ class SyncUpState(BaseModel):
     dependency_graph: dict[str, list[str]] = Field(default_factory=dict)
     student_profiles: list[StudentProfile] = Field(default_factory=list)
     delegation_matrix: dict[str, str] = Field(default_factory=dict)
+    equity_result: Optional[EquityResult] = None
+    equity_retries: int = 0
 
     # Append-only ledgers (LangGraph reducer = operator.add)
     contribution_ledger: Annotated[list[ContributionRecord], operator.add] = Field(
@@ -217,3 +236,12 @@ class SyncUpState(BaseModel):
 
     peer_review_data: list[PeerReview] = Field(default_factory=list)
     project_timeline: ProjectTimeline = Field(default_factory=ProjectTimeline)
+
+    # Publishing fields
+    project_name: str = ""
+    trello_board_id: Optional[str] = None
+    trello_card_mapping: dict[str, str] = Field(default_factory=dict)
+    calendar_event_mapping: dict[str, str] = Field(default_factory=dict)
+    docs_task_matrix_id: Optional[str] = None
+    webhook_configured: bool = False
+    publishing_status: Optional[PublishingStatus] = None
