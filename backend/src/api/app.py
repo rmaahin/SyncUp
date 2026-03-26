@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from mcp_layer.client import SyncUpMCPClient
+from state.store import InMemoryStateStore
 
 load_dotenv()
 
@@ -31,6 +32,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.exception("MCP client failed to initialize — app will run without MCP")
         application.state.mcp_client = None
+
+    # In-memory state store (replaced with PostgreSQL in Phase 10)
+    application.state.state_store = InMemoryStateStore()
+    application.state.board_project_map: dict[str, str] = {}  # trello_board_id → project_id
+    application.state.repo_project_map: dict[str, str] = {}   # github repo full_name → project_id
 
     yield
 
@@ -57,8 +63,12 @@ app.add_middleware(
 
 # Routers
 from api.routes.onboarding import router as onboarding_router  # noqa: E402
+from api.routes.projects import router as projects_router  # noqa: E402
+from api.routes.webhooks import router as webhooks_router  # noqa: E402
 
 app.include_router(onboarding_router, prefix="/api/onboarding", tags=["onboarding"])
+app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
+app.include_router(webhooks_router, prefix="/api/webhooks", tags=["webhooks"])
 
 
 @app.get("/health")

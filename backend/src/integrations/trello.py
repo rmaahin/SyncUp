@@ -91,6 +91,26 @@ class TrelloChecklist(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class TrelloComment(BaseModel):
+    """Trello comment (action) representation."""
+
+    id: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    date: str = ""
+
+
+class TrelloWebhook(BaseModel):
+    """Trello webhook representation."""
+
+    id: str
+    description: str = ""
+    id_model: str = Field(alias="idModel", default="")
+    callback_url: str = Field(alias="callbackURL", default="")
+    active: bool = True
+
+    model_config = {"populate_by_name": True}
+
+
 # ---------------------------------------------------------------------------
 # Custom exception
 # ---------------------------------------------------------------------------
@@ -238,6 +258,36 @@ class TrelloClient:
         )
         return TrelloCard.model_validate(data)
 
+    async def update_card(
+        self,
+        card_id: str,
+        due: datetime | None = None,
+        name: str | None = None,
+        desc: str | None = None,
+    ) -> TrelloCard:
+        """Update a card's fields (due date, name, description).
+
+        Only non-None arguments are sent to the API.
+
+        Args:
+            card_id: The ID of the card to update.
+            due: New due date (or None to leave unchanged).
+            name: New card name (or None to leave unchanged).
+            desc: New description (or None to leave unchanged).
+
+        Returns:
+            The updated ``TrelloCard`` object.
+        """
+        params: dict[str, Any] = {}
+        if due is not None:
+            params["due"] = due.isoformat()
+        if name is not None:
+            params["name"] = name
+        if desc is not None:
+            params["desc"] = desc
+        data = await self._request("PUT", f"/cards/{card_id}", params=params)
+        return TrelloCard.model_validate(data)
+
     # -- Checklist operations -----------------------------------------------
 
     async def add_checklist(
@@ -271,6 +321,25 @@ class TrelloClient:
         )
         return TrelloLabel.model_validate(data)
 
+    # -- Comment operations -------------------------------------------------
+
+    async def add_comment(self, card_id: str, text: str) -> TrelloComment:
+        """Add a comment to a card.
+
+        Args:
+            card_id: The ID of the card to comment on.
+            text: The comment text.
+
+        Returns:
+            The created ``TrelloComment`` object.
+        """
+        data = await self._request(
+            "POST",
+            f"/cards/{card_id}/actions/comments",
+            params={"text": text},
+        )
+        return TrelloComment.model_validate(data)
+
     # -- Query operations ---------------------------------------------------
 
     async def get_board_cards(self, board_id: str) -> list[TrelloCard]:
@@ -282,3 +351,35 @@ class TrelloClient:
         """Look up a Trello member by username."""
         data = await self._request("GET", f"/members/{username}")
         return TrelloMember.model_validate(data)
+
+    # -- Webhook operations -------------------------------------------------
+
+    async def create_webhook(
+        self,
+        callback_url: str,
+        id_model: str,
+        description: str = "SyncUp webhook",
+    ) -> TrelloWebhook:
+        """Register a webhook on a Trello board or other model.
+
+        Trello will send a HEAD request to ``callback_url`` to verify it
+        returns 200 before creating the webhook.
+
+        Args:
+            callback_url: The public URL Trello will POST events to.
+            id_model: The ID of the board/list/card to watch.
+            description: Human-readable description.
+
+        Returns:
+            The created ``TrelloWebhook`` object.
+        """
+        data = await self._request(
+            "POST",
+            "/webhooks",
+            params={
+                "callbackURL": callback_url,
+                "idModel": id_model,
+                "description": description,
+            },
+        )
+        return TrelloWebhook.model_validate(data)

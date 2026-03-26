@@ -18,6 +18,7 @@ from integrations.trello import (
     TrelloLabel,
     TrelloList,
     TrelloMember,
+    TrelloWebhook,
 )
 
 
@@ -260,6 +261,29 @@ class TestTrelloClientErrors:
             await client.create_card("l1", "x")
         assert exc_info.value.status_code == 429
         assert "429" in str(exc_info.value)
+
+    async def test_create_webhook(self) -> None:
+        client = await self._make_client()
+        assert client._client is not None
+        client._client.request = AsyncMock(
+            return_value=_mock_response(json_data={
+                "id": "wh1",
+                "description": "SyncUp webhook",
+                "idModel": "board-123",
+                "callbackURL": "https://example.com/api/webhooks/trello",
+                "active": True,
+            })
+        )
+        result = await client.create_webhook(
+            callback_url="https://example.com/api/webhooks/trello",
+            id_model="board-123",
+            description="SyncUp webhook",
+        )
+        assert isinstance(result, TrelloWebhook)
+        assert result.id == "wh1"
+        assert result.id_model == "board-123"
+        assert result.callback_url == "https://example.com/api/webhooks/trello"
+        assert result.active is True
 
     async def test_auth_params_always_included(self) -> None:
         client = await self._make_client()

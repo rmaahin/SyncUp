@@ -12,6 +12,10 @@ services:
         condition: service_healthy
       gcal-mcp:
         condition: service_started
+      gdocs-mcp:
+        condition: service_started
+      github-mcp:
+        condition: service_started
     volumes:
       - ./backend/src:/app/src
       - ./backend/scripts:/app/scripts
@@ -30,12 +34,30 @@ services:
       - ./frontend/lib:/app/lib
 
   gcal-mcp:
-    build: ./mcp-servers/google-calendar
+    build: ./mcp-servers
+    command: ["python", "google-calendar/server.py", "--port", "3001"]
     ports:
       - "3001:3001"
     volumes:
-      - ./mcp-servers/google-calendar/credentials.json:/app/credentials.json:ro
-      - ./mcp-servers/google-calendar/token.json:/app/token.json
+      - ./mcp-servers/google-calendar/credentials.json:/app/google-calendar/credentials.json:ro
+      - ./mcp-servers/google-calendar/token.json:/app/google-calendar/token.json
+
+  gdocs-mcp:
+    build: ./mcp-servers
+    command: ["python", "google-docs/server.py", "--port", "3002"]
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./mcp-servers/google-docs/credentials.json:/app/google-docs/credentials.json:ro
+      - ./mcp-servers/google-docs/token.json:/app/google-docs/token.json
+
+  github-mcp:
+    build: ./mcp-servers
+    command: ["python", "github/server.py", "--port", "3003"]
+    ports:
+      - "3003:3003"
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
 
   postgres:
     image: postgres:16.6-alpine
@@ -64,6 +86,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: unless-stopped
+    command: ["http", "backend:8000", "--log=stdout"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

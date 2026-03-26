@@ -29,12 +29,43 @@ def after_equity_eval(state: "SyncUpState") -> str:
 
 
 def after_tone_eval(state: "SyncUpState") -> str:
-    """Route after the tone evaluator — end or escalate."""
-    return "__end__"
+    """Route after the tone evaluator — deliver or rewrite.
+
+    Routes to ``deliver`` if the draft is constructive or the rewrite
+    limit (3) has been reached.  Routes back to ``conflict_resolution``
+    if the tone was punitive and rewrites remain.
+    """
+    # No draft → deliver handles cleanup
+    if state.draft_intervention is None:
+        return "deliver"
+
+    # Rewrite limit reached → force-deliver
+    if state.tone_rewrite_count >= 3:
+        return "deliver"
+
+    # Punitive → loop back for rewrite
+    if (
+        state.tone_result is not None
+        and state.tone_result.classification == "punitive"
+    ):
+        return "conflict_resolution"
+
+    # Constructive → deliver
+    return "deliver"
 
 
 def after_progress_check(state: "SyncUpState") -> str:
-    """Route after progress tracking — conflict resolution or end."""
+    """Route after progress tracking — conflict resolution if any student is behind.
+
+    Checks ``student_progress`` for any student with status ``"behind"``.
+    If found, routes to ``conflict_resolution`` for intervention.
+    Otherwise routes to ``__end__``.
+    """
+    if not state.student_progress:
+        return "__end__"
+    for status in state.student_progress.values():
+        if status == "behind":
+            return "conflict_resolution"
     return "__end__"
 
 

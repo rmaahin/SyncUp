@@ -1,19 +1,20 @@
 """Tests for the LangGraph graph skeleton."""
 
+from agents.conflict_resolution import conflict_resolution
 from agents.delegation import delegation
+from agents.deliver import deliver
 from agents.publishing import publishing
 from agents.task_decomposition import task_decomposition
 from evaluators.equity_evaluator import equity_evaluator
+from evaluators.tone_evaluator import tone_evaluator
+from agents.progress_tracking import progress_tracking
 from graph.main import (
     build_graph,
-    conflict_resolution,
     graph,
     human_review,
     meeting_coordinator,
-    progress_tracking,
     report_generator,
     supervisor,
-    tone_evaluator,
 )
 from graph.routing import (
     after_availability_check,
@@ -22,7 +23,12 @@ from graph.routing import (
     after_tone_eval,
     supervisor_router,
 )
-from state.schema import EquityResult, SyncUpState
+from state.schema import (
+    DraftIntervention,
+    EquityResult,
+    SyncUpState,
+    ToneResult,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +68,14 @@ class TestPlaceholderNodes:
         assert delegation(SyncUpState()) == {}
 
     def test_progress_tracking(self) -> None:
-        assert progress_tracking(SyncUpState()) == {}
+        result = progress_tracking(SyncUpState())
+        assert result["pending_event"] is None
+        assert result["student_progress"] == {}
 
     def test_conflict_resolution(self) -> None:
-        assert conflict_resolution(SyncUpState()) == {}
+        # Real agent returns draft_intervention=None when no one is behind.
+        result = conflict_resolution(SyncUpState())
+        assert result["draft_intervention"] is None
 
     def test_meeting_coordinator(self) -> None:
         assert meeting_coordinator(SyncUpState()) == {}
@@ -82,7 +92,15 @@ class TestPlaceholderNodes:
         assert result["equity_retries"] == 1
 
     def test_tone_evaluator(self) -> None:
-        assert tone_evaluator(SyncUpState()) == {}
+        # Real evaluator returns tone_result=None when no draft exists.
+        result = tone_evaluator(SyncUpState())
+        assert result["tone_result"] is None
+
+    async def test_deliver(self) -> None:
+        # Real deliver node clears state when no draft exists.
+        result = await deliver(SyncUpState())
+        assert result["draft_intervention"] is None
+        assert result["tone_rewrite_count"] == 0
 
     def test_human_review(self) -> None:
         assert human_review(SyncUpState()) == {}
@@ -129,9 +147,46 @@ class TestRoutingStubs:
         state = SyncUpState(equity_retries=0)
         assert after_equity_eval(state) == "delegation"
 
-    def test_after_tone_eval(self) -> None:
+    def test_after_tone_eval_no_draft(self) -> None:
         result = after_tone_eval(SyncUpState())
-        assert result == "__end__"
+        assert result == "deliver"
+
+    def test_after_tone_eval_constructive(self) -> None:
+        state = SyncUpState(
+            draft_intervention=DraftIntervention(
+                target_student_id="s-1", message="Hi"
+            ),
+            tone_result=ToneResult(
+                classification="constructive", reasoning="ok"
+            ),
+        )
+        assert after_tone_eval(state) == "deliver"
+
+    def test_after_tone_eval_punitive(self) -> None:
+        state = SyncUpState(
+            draft_intervention=DraftIntervention(
+                target_student_id="s-1", message="Hi"
+            ),
+            tone_result=ToneResult(
+                classification="punitive",
+                reasoning="blame",
+                flagged_phrases=["you failed"],
+            ),
+            tone_rewrite_count=1,
+        )
+        assert after_tone_eval(state) == "conflict_resolution"
+
+    def test_after_tone_eval_max_rewrites(self) -> None:
+        state = SyncUpState(
+            draft_intervention=DraftIntervention(
+                target_student_id="s-1", message="Hi"
+            ),
+            tone_result=ToneResult(
+                classification="punitive", reasoning="blame"
+            ),
+            tone_rewrite_count=3,
+        )
+        assert after_tone_eval(state) == "deliver"
 
     def test_after_progress_check(self) -> None:
         result = after_progress_check(SyncUpState())

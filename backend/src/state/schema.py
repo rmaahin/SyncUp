@@ -5,7 +5,7 @@ from __future__ import annotations
 import operator
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -127,6 +127,7 @@ class ContributionRecord(BaseModel):
     description: str = ""
     semantic_quality_score: float = Field(ge=0.0, le=1.0)
     raw_metrics: RawMetrics = Field(default_factory=RawMetrics)
+    performed_by: str = ""  # Who actually performed the action (e.g. Trello memberCreator)
 
 
 class MeetingRecord(BaseModel):
@@ -169,6 +170,24 @@ class AvailabilityChange(BaseModel):
     old_blackouts: list[DateRange] = Field(default_factory=list)
     new_blackouts: list[DateRange] = Field(default_factory=list)
     triggered_redelegation: bool = False
+
+
+class DraftIntervention(BaseModel):
+    """A draft conflict-resolution message awaiting tone evaluation."""
+
+    target_student_id: str
+    message: str
+    suggested_action: str = ""  # "extend_deadline", "redistribute_task", "schedule_check_in", "no_action"
+    severity: str = "low"  # "low", "medium", "high"
+    affected_teammates: list[str] = Field(default_factory=list)
+
+
+class ToneResult(BaseModel):
+    """Structured output from the Tone Evaluator (LLM-as-a-Judge)."""
+
+    classification: str  # "constructive" or "punitive"
+    reasoning: str = ""
+    flagged_phrases: list[str] = Field(default_factory=list)
 
 
 class EquityResult(BaseModel):
@@ -239,9 +258,20 @@ class SyncUpState(BaseModel):
 
     # Publishing fields
     project_name: str = ""
+    github_repo: str = ""  # e.g. "owner/repo" — routes GitHub webhooks to this project
     trello_board_id: Optional[str] = None
     trello_card_mapping: dict[str, str] = Field(default_factory=dict)
     calendar_event_mapping: dict[str, str] = Field(default_factory=dict)
     docs_task_matrix_id: Optional[str] = None
     webhook_configured: bool = False
     publishing_status: Optional[PublishingStatus] = None
+
+    # Progress tracking fields
+    pending_event: Optional[dict[str, Any]] = None
+    student_progress: dict[str, str] = Field(default_factory=dict)
+
+    # Conflict resolution / tone evaluation fields
+    draft_intervention: Optional[DraftIntervention] = None
+    tone_result: Optional[ToneResult] = None
+    tone_rewrite_count: int = 0
+    needs_redelegation: list[str] = Field(default_factory=list)  # task_ids flagged for re-delegation

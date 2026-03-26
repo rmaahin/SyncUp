@@ -136,6 +136,18 @@ class TrelloCardUpdateEvent(BaseModel):
         list_after = self.action.get("data", {}).get("listAfter", {})
         return str(list_after.get("id", ""))
 
+    @property
+    def member_creator_username(self) -> str:
+        """The Trello username of the member who performed this action."""
+        creator = self.action.get("memberCreator", {})
+        return str(creator.get("username", ""))
+
+    @property
+    def member_creator_full_name(self) -> str:
+        """The full name of the member who performed this action."""
+        creator = self.action.get("memberCreator", {})
+        return str(creator.get("fullName", ""))
+
 
 # ---------------------------------------------------------------------------
 # GitHub signature validation

@@ -6,6 +6,7 @@ is connected and tool names are known.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -47,6 +48,11 @@ class GitHubMCP:
         if since is not None:
             params["since"] = since.isoformat()
         result = await tool.ainvoke(params)
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                pass
         return result if isinstance(result, list) else [result]
 
     async def get_file_diff(
@@ -64,6 +70,11 @@ class GitHubMCP:
         """
         tool = self._mcp.require_tool(TOOL_GET_FILE_DIFF)
         result = await tool.ainvoke({"owner": owner, "repo": repo, "sha": sha})
+        if isinstance(result, str):
+            try:
+                return json.loads(result)  # type: ignore[no-any-return]
+            except (json.JSONDecodeError, TypeError):
+                return {"diff": result}
         return result if isinstance(result, dict) else {"diff": result}
 
     async def get_pull_requests(
@@ -84,4 +95,9 @@ class GitHubMCP:
         """
         tool = self._mcp.require_tool(TOOL_GET_PULL_REQUESTS)
         result = await tool.ainvoke({"owner": owner, "repo": repo, "state": state})
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                pass
         return result if isinstance(result, list) else [result]

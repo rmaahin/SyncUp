@@ -1,8 +1,9 @@
-"""Live end-to-end test — Phase 1 through 5 with REAL services.
+"""Live end-to-end test — Phase 1 through 7 with REAL services.
 
 This script calls each agent node in sequence using:
-  - Real Groq LLM (task decomposition, delegation, equity evaluation)
-  - Real Trello API (creates a board with cards)
+  - Real Groq LLM (task decomposition, delegation, equity evaluation,
+    progress tracking, conflict resolution, tone evaluation)
+  - Real Trello API (creates a board with cards, posts intervention comments)
   - Google Calendar via MCP (if configured, otherwise skipped gracefully)
   - Google Docs via MCP (if configured, otherwise skipped gracefully)
 
@@ -39,11 +40,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import httpx
+
+from agents.conflict_resolution import conflict_resolution
 from agents.delegation import delegation
+from agents.deliver import deliver
+from agents.progress_tracking import progress_tracking
 from agents.publishing import publishing
 from agents.task_decomposition import task_decomposition
 from evaluators.equity_evaluator import equity_evaluator
-from state.schema import StudentProfile, SyncUpState
+from evaluators.tone_evaluator import tone_evaluator
+from state.schema import ContributionRecord, DateRange, EventType, StudentProfile, SyncUpState, TaskStatus
 
 # ---------------------------------------------------------------------------
 # Config
@@ -105,6 +112,13 @@ def _make_students() -> list[StudentProfile]:
             github_username="bob-dev",
             google_email="bob@example.com",
             trello_id="",
+            # Active blackout: exam week — triggers extend_deadline bias
+            blackout_periods=[
+                DateRange(
+                    start=datetime.now(tz=timezone.utc) - timedelta(days=1),
+                    end=datetime.now(tz=timezone.utc) + timedelta(days=4),
+                )
+            ],
             onboarded_at=datetime.now(tz=timezone.utc),
         ),
     ]
@@ -154,9 +168,9 @@ def preflight() -> dict[str, bool]:
 
 
 async def run_pipeline() -> None:
-    """Execute the full Phase 1-5 pipeline with real services."""
+    """Execute the full Phase 1-7 pipeline with real services."""
     print("=" * 70)
-    print("  SyncUp Live E2E Test — Phases 1 through 5")
+    print("  SyncUp Live E2E Test — Phases 1 through 7")
     print("=" * 70)
 
     # Pre-flight
@@ -302,6 +316,351 @@ async def run_pipeline() -> None:
     print("  [OK] Publishing complete")
 
     # =========================================================================
+    # PHASE 6: Progress Tracking (real low-tier LLM)
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("  PHASE 6: Progress Tracking (calling Groq low-tier LLM)")
+    print("=" * 70)
+
+    # --- 6a: Simulate a GitHub push event from Alice ---
+    print("\n  --- 6a: Simulating GitHub push from Alice ---")
+    first_task = state.task_array[0] if state.task_array else None
+    push_event = {
+        "event_type": "github_push",
+        "github_username": "alice-dev",
+        "repository_full_name": "team/campuseats",
+        "commits": [
+            {
+                "sha": "a1b2c3d",
+                "message": f"feat: implement {first_task.title if first_task else 'initial setup'}",
+                "added": ["src/main.py", "src/models.py"],
+                "removed": [],
+                "modified": ["README.md"],
+                "diff_summary": (
+                    "+from fastapi import FastAPI\n"
+                    "+app = FastAPI()\n"
+                    "+\n"
+                    "+@app.get('/health')\n"
+                    "+def health():\n"
+                    "+    return {'status': 'ok'}\n"
+                ),
+            }
+        ],
+        "timestamp": now.isoformat(),
+    }
+
+    state = state.model_copy(update={"pending_event": push_event})
+    push_result = progress_tracking(state)
+    state = state.model_copy(update=push_result)
+
+    if state.contribution_ledger:
+        rec = state.contribution_ledger[-1]
+        print(f"  Event type:      {rec.event_type.value}")
+        print(f"  Student:         {student_map.get(rec.student_id, rec.student_id)}")
+        print(f"  Quality score:   {rec.semantic_quality_score:.2f}")
+        print(f"  Description:     {rec.description[:80]}")
+        print(f"  Raw metrics:     +{rec.raw_metrics.lines_added} -{rec.raw_metrics.lines_removed} files={rec.raw_metrics.files_changed}")
+    print("  [OK] GitHub push event processed")
+
+    # --- 6b: Simulate a Trello card move (if we have card mappings) ---
+    if state.trello_card_mapping:
+        print("\n  --- 6b: Simulating Trello card move ---")
+        # Pick the first task's card
+        first_task_id = list(state.trello_card_mapping.keys())[0]
+        first_card_id = state.trello_card_mapping[first_task_id]
+        task_name = next(
+            (t.title for t in state.task_array if t.id == first_task_id),
+            "Unknown task",
+        )
+
+        trello_event = {
+            "event_type": "trello_card_update",
+            "trello_card_id": first_card_id,
+            "trello_card_name": task_name,
+            "trello_list_before": "To Do",
+            "trello_list_after": "In Progress",
+            "timestamp": now.isoformat(),
+        }
+
+        state = state.model_copy(update={"pending_event": trello_event})
+        trello_result = progress_tracking(state)
+        state = state.model_copy(update=trello_result)
+
+        if len(state.contribution_ledger) >= 2:
+            rec = state.contribution_ledger[-1]
+            print(f"  Event type:      {rec.event_type.value}")
+            print(f"  Student:         {student_map.get(rec.student_id, rec.student_id)}")
+            print(f"  Quality score:   {rec.semantic_quality_score:.2f} (neutral for card moves)")
+            print(f"  Description:     {rec.description[:80]}")
+        print("  [OK] Trello card move event processed")
+    else:
+        print("\n  --- 6b: Skipping Trello card move (no card mappings) ---")
+
+    # --- 6c: Simulate a GitHub PR event from Bob ---
+    print("\n  --- 6c: Simulating GitHub PR from Bob ---")
+    pr_event = {
+        "event_type": "github_pr",
+        "github_username": "bob-dev",
+        "repository_full_name": "team/campuseats",
+        "pr_title": "Add frontend HTML/CSS layout",
+        "pr_action": "opened",
+        "pr_number": 1,
+        "pr_files_changed": 4,
+        "timestamp": now.isoformat(),
+    }
+
+    state = state.model_copy(update={"pending_event": pr_event})
+    pr_result = progress_tracking(state)
+    state = state.model_copy(update=pr_result)
+
+    if state.contribution_ledger:
+        rec = state.contribution_ledger[-1]
+        print(f"  Event type:      {rec.event_type.value}")
+        print(f"  Student:         {student_map.get(rec.student_id, rec.student_id)}")
+        print(f"  Quality score:   {rec.semantic_quality_score:.2f}")
+        print(f"  Description:     {rec.description[:80]}")
+    print("  [OK] GitHub PR event processed")
+
+    # --- 6d: Progress evaluation summary ---
+    print("\n  --- 6d: Student progress evaluation ---")
+    if state.student_progress:
+        for sid, status in state.student_progress.items():
+            name = student_map.get(sid, sid)
+            print(f"    {name}: {status}")
+    else:
+        print("    No progress data (no tasks with deadlines yet)")
+
+    print(f"\n  Contribution ledger: {len(state.contribution_ledger)} records total")
+    print(f"  Pending event:      {state.pending_event}  (should be None)")
+    print("  [OK] Progress tracking complete")
+
+    # =========================================================================
+    # PHASE 7: Conflict Resolution + Tone Evaluation + Delivery
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("  PHASE 7: Conflict Resolution → Tone Evaluation → Delivery")
+    print("=" * 70)
+
+    # --- 7a: Force Bob into "behind" status ---
+    print("\n  --- 7a: Forcing Bob into 'behind' status ---")
+
+    # Make Bob's first assigned task overdue by setting deadline to 1 day ago.
+    # We store the original deadline so the deliver node can respect it when
+    # computing the extension (max(original, now) + 3 days).
+    overdue_tasks_updated = []
+    bob_overdue_task_title = None
+    bob_original_deadline = None
+    for t in state.task_array:
+        if state.delegation_matrix.get(t.id) == "s-2" and bob_overdue_task_title is None:
+            bob_original_deadline = t.deadline
+            # Set deadline to yesterday to trigger overdue detection
+            updated = t.model_copy(
+                update={
+                    "deadline": now - timedelta(days=1),
+                    "status": TaskStatus.TODO,
+                }
+            )
+            overdue_tasks_updated.append(updated)
+            bob_overdue_task_title = t.title
+            print(f"  Task:              '{t.title}'")
+            print(f"  Original deadline: {bob_original_deadline.strftime('%Y-%m-%d %H:%M') if bob_original_deadline else 'none'}")
+            print(f"  Forced to:         {updated.deadline.strftime('%Y-%m-%d %H:%M')} (simulated overdue)")
+        else:
+            overdue_tasks_updated.append(t)
+
+    if bob_overdue_task_title:
+        state = state.model_copy(
+            update={
+                "task_array": overdue_tasks_updated,
+                "student_progress": {**state.student_progress, "s-2": "behind"},
+            }
+        )
+        print(f"  Bob's status:      {state.student_progress.get('s-2', 'unknown')}")
+        bob_profile = next((s for s in state.student_profiles if s.student_id == "s-2"), None)
+        if bob_profile and bob_profile.blackout_periods:
+            bp = bob_profile.blackout_periods[0]
+            print(f"  Bob's blackout:    {bp.start.strftime('%Y-%m-%d')} to {bp.end.strftime('%Y-%m-%d')} (exam week)")
+    else:
+        print("  WARN: No task assigned to Bob — skipping Phase 7")
+
+    if state.student_progress.get("s-2") == "behind":
+        # --- 7b: Conflict Resolution (real high-tier LLM) ---
+        print("\n  --- 7b: Conflict Resolution (calling Groq high-tier LLM) ---")
+        cr_result = conflict_resolution(state)
+        state = state.model_copy(update=cr_result)
+
+        draft = state.draft_intervention
+        if draft:
+            print(f"  Target:           {draft.target_student_id}")
+            print(f"  Severity:         {draft.severity}")
+            print(f"  Suggested action: {draft.suggested_action}")
+            print(f"  Affected:         {draft.affected_teammates}")
+            print(f"  Message:")
+            for line in draft.message.split(". "):
+                print(f"    {line.strip()}")
+        else:
+            print("  WARN: No draft intervention generated")
+
+        # --- 7c: Tone Evaluation (real high-tier LLM at temp=0.0) ---
+        print("\n  --- 7c: Tone Evaluation (calling Groq high-tier LLM, temp=0.0) ---")
+        te_result = tone_evaluator(state)
+        state = state.model_copy(update=te_result)
+
+        tone = state.tone_result
+        if tone:
+            print(f"  Classification:   {tone.classification}")
+            print(f"  Reasoning:        {tone.reasoning}")
+            if tone.flagged_phrases:
+                print(f"  Flagged phrases:  {tone.flagged_phrases}")
+        else:
+            print("  WARN: No tone result returned")
+
+        # --- 7d: Handle result ---
+        if tone and tone.classification == "punitive":
+            print("\n  --- 7d: Message flagged as PUNITIVE — attempting one rewrite ---")
+            state = state.model_copy(
+                update={"tone_rewrite_count": state.tone_rewrite_count + 1}
+            )
+
+            # Rewrite
+            cr_result2 = conflict_resolution(state)
+            state = state.model_copy(update=cr_result2)
+            draft2 = state.draft_intervention
+            if draft2:
+                print(f"  Rewritten message:")
+                for line in draft2.message.split(". "):
+                    print(f"    {line.strip()}")
+
+            # Re-evaluate tone
+            te_result2 = tone_evaluator(state)
+            state = state.model_copy(update=te_result2)
+            tone2 = state.tone_result
+            if tone2:
+                print(f"  Re-evaluation:    {tone2.classification}")
+
+        # --- 7e: Deliver (posts Trello comment if board exists) ---
+        if state.draft_intervention:
+            print("\n  --- 7e: Delivering intervention ---")
+            del_result = await deliver(state)
+            state = state.model_copy(update=del_result)
+
+            if state.intervention_history:
+                last_intervention = state.intervention_history[-1]
+                print(f"  Intervention logged: {last_intervention.trigger_reason}")
+                print(f"  Outcome:            {last_intervention.outcome}")
+                print(f"  Timestamp:          {last_intervention.timestamp}")
+            print(f"  Draft cleared:      {state.draft_intervention is None}")
+            print(f"  Rewrite count:      {state.tone_rewrite_count}")
+
+            # Show action side effects
+            if "task_array" in del_result:
+                print(f"\n  --- Deadline extended! ---")
+                print(f"  NOTE: In this test, the deadline was artificially set to the past.")
+                print(f"  The system uses max(original_deadline, now) + {3} days, then avoids blackouts.")
+                for t in state.task_array:
+                    if state.delegation_matrix.get(t.id) == "s-2":
+                        new_dl_str = t.deadline.strftime('%Y-%m-%d %H:%M') if t.deadline else 'none'
+                        print(f"  Task '{t.title}' new deadline: {new_dl_str}")
+            if "needs_redelegation" in del_result:
+                print(f"\n  --- Tasks flagged for re-delegation: {del_result['needs_redelegation']} ---")
+
+            print("  [OK] Intervention delivered")
+        else:
+            print("\n  --- 7e: No draft to deliver (was cleared) ---")
+
+    print("  [OK] Phase 7 complete")
+
+    # =========================================================================
+    # PHASE 6 LIVE: Bootstrap state + register Trello webhook
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("  PHASE 6 LIVE: Bootstrap state into API + register Trello webhook")
+    print("=" * 70)
+
+    # Set github_repo on state for webhook routing
+    state = state.model_copy(update={"github_repo": "team/campuseats"})
+
+    backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+    project_id = state.project_id
+
+    # Try to bootstrap state into the running FastAPI server
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            # Check if backend is reachable
+            health = await http.get(f"{backend_url}/health")
+            if health.status_code != 200:
+                print("  Backend not reachable — skipping live webhook setup")
+                raise ConnectionError()
+
+            # Bootstrap state into the in-memory store
+            print(f"  Bootstrapping state for project '{project_id}'...")
+            resp = await http.post(
+                f"{backend_url}/api/projects/{project_id}/state",
+                json=state.model_dump(mode="json"),
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                print(f"  [OK] State bootstrapped: {data.get('tasks', 0)} tasks, "
+                      f"{data.get('students', 0)} students")
+            else:
+                print(f"  WARN: Bootstrap failed: {resp.status_code} {resp.text[:100]}")
+
+            # Try to detect ngrok public URL
+            # Inside Docker, ngrok is at "ngrok:4040"; outside, it's "localhost:4040"
+            ngrok_url = None
+            ngrok_api_urls = ["http://ngrok:4040/api/tunnels", "http://localhost:4040/api/tunnels"]
+            for ngrok_api_url in ngrok_api_urls:
+                try:
+                    tunnels_resp = await http.get(ngrok_api_url)
+                except Exception:
+                    continue
+                if tunnels_resp.status_code == 200:
+                    tunnels = tunnels_resp.json().get("tunnels", [])
+                    for tunnel in tunnels:
+                        if tunnel.get("proto") == "https":
+                            ngrok_url = tunnel["public_url"]
+                            break
+                    if not ngrok_url and tunnels:
+                        ngrok_url = tunnels[0].get("public_url")
+                if ngrok_url:
+                    break
+
+            if ngrok_url:
+                print(f"  Detected ngrok URL: {ngrok_url}")
+
+                # Register Trello webhook
+                print("  Registering Trello webhook...")
+                reg_resp = await http.post(
+                    f"{backend_url}/api/projects/{project_id}/webhooks/register",
+                    params={"ngrok_url": ngrok_url},
+                )
+                if reg_resp.status_code == 200:
+                    reg_data = reg_resp.json()
+                    trello_wh = reg_data.get("webhooks", {}).get("trello", {})
+                    if "webhook_id" in trello_wh:
+                        print(f"  [OK] Trello webhook registered: {trello_wh['webhook_id']}")
+                        print(f"       Callback: {trello_wh['callback_url']}")
+                        print("\n  >>> Move a card on your Trello board now! <<<")
+                        print("  >>> The backend will process it and log the contribution. <<<")
+                    else:
+                        print(f"  WARN: Trello webhook failed: {trello_wh.get('error', 'unknown')}")
+                else:
+                    print(f"  WARN: Registration failed: {reg_resp.status_code}")
+            else:
+                print("  ngrok not detected (is the ngrok service running?)")
+                print("  Skipping live webhook registration.")
+                print("  To set up manually:")
+                print("    1. Run: docker compose up ngrok")
+                print("    2. Get URL from: http://localhost:4040")
+                print(f"    3. Call: POST {backend_url}/api/projects/{project_id}/webhooks/register?ngrok_url=<URL>")
+
+    except (httpx.ConnectError, ConnectionError):
+        print("  Backend not reachable — skipping live webhook setup")
+        print("  (This is normal when running the script outside Docker)")
+
+    print("  [OK] Live webhook setup complete")
+
+    # =========================================================================
     # Summary
     # =========================================================================
     print("\n" + "=" * 70)
@@ -314,6 +673,18 @@ async def run_pipeline() -> None:
     print(f"  Calendar events:      {len(state.calendar_event_mapping)}")
     print(f"  Google Doc:           {state.docs_task_matrix_id or 'not created'}")
     print(f"  Webhook configured:   {state.webhook_configured}")
+    print(f"  Contributions logged: {len(state.contribution_ledger)}")
+    print(f"  Interventions sent:   {len(state.intervention_history)}")
+    print(f"  Student progress:     {state.student_progress or 'N/A'}")
+
+    if state.intervention_history:
+        last = state.intervention_history[-1]
+        print(f"\n  Last intervention:")
+        print(f"    Target:  {last.target_student_id}")
+        print(f"    Reason:  {last.trigger_reason}")
+        print(f"    Action:  {last.outcome}")
+        msg_preview = last.message_text[:100]
+        print(f"    Message: {msg_preview}{'...' if len(last.message_text) > 100 else ''}")
 
     if state.trello_board_id:
         print(f"\n  NOTE: A Trello board was created. Delete it when done:")
