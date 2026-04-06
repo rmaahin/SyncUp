@@ -13,6 +13,7 @@ from langgraph.graph import END, StateGraph
 from agents.conflict_resolution import conflict_resolution as _conflict_resolution
 from agents.delegation import delegation as _delegation
 from agents.deliver import deliver as _deliver
+from agents.meeting_coordinator import meeting_coordinator as _meeting_coordinator
 from agents.progress_tracking import progress_tracking as _progress_tracking
 from agents.publishing import publishing as _publishing
 from agents.task_decomposition import task_decomposition as _task_decomposition
@@ -37,11 +38,6 @@ def supervisor(state: SyncUpState) -> dict[str, Any]:
     return {}
 
 
-def meeting_coordinator(state: SyncUpState) -> dict[str, Any]:
-    """Meeting Coordinator agent node."""
-    return {}
-
-
 def human_review(state: SyncUpState) -> dict[str, Any]:
     """Human-in-the-loop checkpoint — professor approves delegation matrix."""
     return {}
@@ -62,7 +58,7 @@ _NODE_FUNCTIONS = {
     "delegation": _delegation,
     "progress_tracking": _progress_tracking,
     "conflict_resolution": _conflict_resolution,
-    "meeting_coordinator": meeting_coordinator,
+    "meeting_coordinator": _meeting_coordinator,
     "publishing": _publishing,
     "equity_evaluator": _equity_evaluator,
     "tone_evaluator": _tone_evaluator,

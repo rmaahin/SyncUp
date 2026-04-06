@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from guardrails.sanitizer import sanitize_document
 from llm import get_high_tier_llm
 from state.schema import SyncUpState, Task, TaskStatus, UrgencyLevel
 
@@ -276,8 +277,10 @@ def task_decomposition(state: SyncUpState) -> dict[str, Any]:
 
     llm = get_high_tier_llm(temperature=0.7)
 
+    sanitized_brief = sanitize_document(state.project_brief, "google_docs")
+
     system_msg = SYSTEM_PROMPT
-    user_msg = _build_user_prompt(state.project_brief, available_skills)
+    user_msg = _build_user_prompt(sanitized_brief, available_skills)
 
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES + 1):

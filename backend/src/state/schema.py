@@ -275,3 +275,9 @@ class SyncUpState(BaseModel):
     tone_result: Optional[ToneResult] = None
     tone_rewrite_count: int = 0
     needs_redelegation: list[str] = Field(default_factory=list)  # task_ids flagged for re-delegation
+
+    # Meeting coordinator fields
+    next_meeting_scheduled: Optional[datetime] = None
+    meeting_notes_doc_ids: list[str] = Field(default_factory=list)
+    meeting_interval_days: int = 7
+    meeting_mode: Optional[str] = None  # "schedule" | "ingest"

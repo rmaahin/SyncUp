@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from guardrails.sanitizer import sanitize_text, wrap_untrusted
 from llm import get_low_tier_llm
 from state.schema import (
     ContributionRecord,
@@ -76,19 +77,21 @@ def _build_user_prompt(event: dict[str, Any], raw_metrics: RawMetrics) -> str:
     """
     event_type = event.get("event_type", "unknown")
 
-    # Gather commit messages
+    # Gather commit messages (sanitise untrusted external content)
     commit_messages = ""
     if event_type == "github_push":
         commits = event.get("commits", [])
-        commit_messages = "; ".join(c.get("message", "") for c in commits)
+        commit_messages = sanitize_text(
+            "; ".join(c.get("message", "") for c in commits)
+        )
     elif event_type == "github_pr":
-        commit_messages = event.get("pr_title", "")
+        commit_messages = sanitize_text(event.get("pr_title", ""))
 
-    # Gather diff summary
+    # Gather diff summary (sanitise before truncation)
     diff_summary = ""
     if event_type == "github_push":
         diffs = [c.get("diff_summary", "") for c in event.get("commits", [])]
-        diff_summary = "\n".join(d for d in diffs if d)
+        diff_summary = sanitize_text("\n".join(d for d in diffs if d))
 
     diff_summary = _truncate_diff(diff_summary, MAX_DIFF_CHARS)
 
@@ -99,7 +102,7 @@ def _build_user_prompt(event: dict[str, Any], raw_metrics: RawMetrics) -> str:
         f"Lines added: {raw_metrics.lines_added}, "
         f"Lines removed: {raw_metrics.lines_removed}\n"
         f"Diff summary:\n"
-        f"<<<UNTRUSTED_DATA_START>>>\n{diff_summary}\n<<<UNTRUSTED_DATA_END>>>"
+        f"{wrap_untrusted(diff_summary, 'github')}"
     )
 
 
@@ -301,17 +304,17 @@ def _build_description(event: dict[str, Any]) -> str:
         count = len(commits)
         repo = event.get("repository_full_name", "unknown")
         if count == 1 and commits:
-            msg = commits[0].get("message", "")
+            msg = sanitize_text(commits[0].get("message", ""))
             return f"Push to {repo}: {msg}"
         return f"Push to {repo}: {count} commits"
 
     if event_type == "github_pr":
         action = event.get("pr_action", "")
-        title = event.get("pr_title", "")
+        title = sanitize_text(event.get("pr_title", ""))
         return f"PR {action}: {title}"
 
     if event_type == "trello_card_update":
-        card_name = event.get("trello_card_name", "")
+        card_name = sanitize_text(event.get("trello_card_name", ""))
         list_after = event.get("trello_list_after", "")
         return f"Card moved: {card_name} → {list_after}"
 

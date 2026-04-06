@@ -1,8 +1,9 @@
-"""Live end-to-end test — Phase 1 through 7 with REAL services.
+"""Live end-to-end test — Phase 1 through 8 with REAL services.
 
 This script calls each agent node in sequence using:
   - Real Groq LLM (task decomposition, delegation, equity evaluation,
-    progress tracking, conflict resolution, tone evaluation)
+    progress tracking, conflict resolution, tone evaluation,
+    meeting agenda generation, meeting notes parsing)
   - Real Trello API (creates a board with cards, posts intervention comments)
   - Google Calendar via MCP (if configured, otherwise skipped gracefully)
   - Google Docs via MCP (if configured, otherwise skipped gracefully)
@@ -45,11 +46,13 @@ import httpx
 from agents.conflict_resolution import conflict_resolution
 from agents.delegation import delegation
 from agents.deliver import deliver
+from agents.meeting_coordinator import meeting_coordinator
 from agents.progress_tracking import progress_tracking
 from agents.publishing import publishing
 from agents.task_decomposition import task_decomposition
 from evaluators.equity_evaluator import equity_evaluator
 from evaluators.tone_evaluator import tone_evaluator
+from services.meeting_scheduler import find_optimal_meeting_slot, generate_recurring_schedule
 from state.schema import ContributionRecord, DateRange, EventType, StudentProfile, SyncUpState, TaskStatus
 
 # ---------------------------------------------------------------------------
@@ -74,15 +77,15 @@ YOUR_EMAIL = os.environ.get("TEST_USER_EMAIL", "")
 # ---------------------------------------------------------------------------
 
 PROJECT_BRIEF = """\
-Build a simple personal to-do list web app. \
-2-person team, 2-week timeline.
+Build a single-page "Hello World" landing page. \
+2-person team, 2-week timeline. Keep this VERY small — only 3 tasks max.
 
-Features:
-1. A single-page app where users can add, complete, and delete to-do items.
-2. Items are stored in a PostgreSQL database via a Python FastAPI backend.
-3. Basic HTML/CSS frontend (no framework needed).
+Tasks:
+1. Write the HTML/CSS landing page (index.html + style.css).
+2. Write a Python FastAPI backend that serves the page.
+3. Deploy to a shared server.
 
-That's it — keep it minimal.
+That is the ENTIRE project — exactly 3 tasks, nothing more.
 """
 
 
@@ -96,6 +99,7 @@ def _make_students() -> list[StudentProfile]:
             email=email,
             skills={"python": 0.9, "fastapi": 0.8, "sql": 0.7},
             availability_hours_per_week=10.0,
+            preferred_times=["Mon 14:00-16:00", "Wed 14:00-16:00", "Fri 10:00-12:00"],
             timezone="America/New_York",
             github_username="alice-dev",
             google_email=email,
@@ -108,6 +112,7 @@ def _make_students() -> list[StudentProfile]:
             email="bob@example.com",
             skills={"html": 0.8, "css": 0.7, "javascript": 0.6},
             availability_hours_per_week=10.0,
+            preferred_times=["Mon 14:00-16:00", "Wed 10:00-12:00", "Thu 14:00-16:00"],
             timezone="America/New_York",
             github_username="bob-dev",
             google_email="bob@example.com",
@@ -168,9 +173,9 @@ def preflight() -> dict[str, bool]:
 
 
 async def run_pipeline() -> None:
-    """Execute the full Phase 1-7 pipeline with real services."""
+    """Execute the full Phase 1-8 pipeline with real services."""
     print("=" * 70)
-    print("  SyncUp Live E2E Test — Phases 1 through 7")
+    print("  SyncUp Live E2E Test — Phases 1 through 8")
     print("=" * 70)
 
     # Pre-flight
@@ -571,6 +576,94 @@ async def run_pipeline() -> None:
     print("  [OK] Phase 7 complete")
 
     # =========================================================================
+    # PHASE 8: Meeting Coordinator (real low-tier LLM + optional MCP)
+    # =========================================================================
+    print("\n" + "=" * 70)
+    print("  PHASE 8: Meeting Coordinator (scheduling + agenda generation)")
+    print("=" * 70)
+
+    # --- 8a: Meeting Scheduler service (pure Python, no LLM) ---
+    print("\n  --- 8a: Finding optimal meeting slot ---")
+    slot = find_optimal_meeting_slot(
+        student_profiles=state.student_profiles,
+        duration_minutes=60,
+        earliest=now + timedelta(days=1),
+        latest=now + timedelta(days=7),
+    )
+    if slot:
+        print(f"  Best slot found:  {slot.strftime('%A %Y-%m-%d %H:%M %Z')}")
+        # Show how the slot aligns with preferences
+        for sp in state.student_profiles:
+            prefs = ", ".join(sp.preferred_times) if sp.preferred_times else "none"
+            print(f"    {sp.name} preferences: {prefs}")
+    else:
+        print("  No slot found (all students busy or blackout conflict)")
+
+    # --- 8b: Generate recurring schedule ---
+    print("\n  --- 8b: Generating recurring meeting schedule ---")
+    if slot:
+        schedule = generate_recurring_schedule(
+            first_meeting=slot,
+            interval_days=state.meeting_interval_days,
+            project_end=state.final_deadline or now + timedelta(days=14),
+        )
+        print(f"  Recurring meetings ({state.meeting_interval_days}-day interval):")
+        for i, dt in enumerate(schedule):
+            print(f"    {i + 1}. {dt.strftime('%A %Y-%m-%d %H:%M %Z')}")
+        print(f"  Total meetings planned: {len(schedule)}")
+    else:
+        print("  Skipping (no initial slot found)")
+
+    # --- 8c: Schedule mode — full meeting coordinator agent ---
+    print("\n  --- 8c: Meeting Coordinator — Schedule mode ---")
+    print("  (Calls low-tier LLM for agenda generation, MCP for calendar/docs)")
+    state = state.model_copy(update={"meeting_mode": "schedule"})
+    mc_result = await meeting_coordinator(state)
+    state = state.model_copy(update=mc_result)
+
+    if state.next_meeting_scheduled:
+        print(f"  Meeting scheduled: {state.next_meeting_scheduled.strftime('%A %Y-%m-%d %H:%M %Z')}")
+    else:
+        print("  No meeting scheduled (no available slot or MCP unavailable)")
+
+    if state.meeting_log:
+        last_meeting = state.meeting_log[-1]
+        print(f"  Attendees:        {last_meeting.attendees}")
+        print("  Agenda preview:")
+        # Show first few lines of the agenda
+        for line in last_meeting.agenda.split("\n")[:8]:
+            if line.strip():
+                print(f"    {line}")
+        if len(last_meeting.agenda.split("\n")) > 8:
+            print("    ...")
+
+    if state.meeting_notes_doc_ids:
+        print(f"  Meeting notes doc: {state.meeting_notes_doc_ids[-1]}")
+    else:
+        print("  Meeting notes doc: not created (Google Docs MCP not configured)")
+
+    # --- 8d: Ingest mode — simulate meeting notes ---
+    print("\n  --- 8d: Meeting Coordinator — Ingest mode ---")
+    if state.meeting_notes_doc_ids:
+        print("  (Reading meeting notes doc via MCP + parsing with low-tier LLM)")
+        state = state.model_copy(update={"meeting_mode": "ingest"})
+        ingest_result = await meeting_coordinator(state)
+        state = state.model_copy(update=ingest_result)
+
+        if len(state.meeting_log) >= 2:
+            ingested = state.meeting_log[-1]
+            print(f"  Notes summary:    {ingested.notes[:120]}{'...' if len(ingested.notes) > 120 else ''}")
+            print(f"  Action items:     {ingested.action_items}")
+            print(f"  Attendees parsed: {ingested.attendees}")
+        print("  [OK] Meeting notes ingested")
+    else:
+        print("  Skipping ingest — no meeting notes doc to read")
+        print("  (Google Docs MCP not configured; this is expected without MCP)")
+
+    print(f"\n  Meeting log entries: {len(state.meeting_log)}")
+    print("  [OK] Phase 8 complete")
+
+    # =========================================================================
     # PHASE 6 LIVE: Bootstrap state + register Trello webhook
     # =========================================================================
     print("\n" + "=" * 70)
@@ -675,6 +768,9 @@ async def run_pipeline() -> None:
     print(f"  Webhook configured:   {state.webhook_configured}")
     print(f"  Contributions logged: {len(state.contribution_ledger)}")
     print(f"  Interventions sent:   {len(state.intervention_history)}")
+    print(f"  Meetings logged:      {len(state.meeting_log)}")
+    print(f"  Next meeting:         {state.next_meeting_scheduled.strftime('%Y-%m-%d %H:%M') if state.next_meeting_scheduled else 'none'}")
+    print(f"  Meeting docs:         {len(state.meeting_notes_doc_ids)}")
     print(f"  Student progress:     {state.student_progress or 'N/A'}")
 
     if state.intervention_history:

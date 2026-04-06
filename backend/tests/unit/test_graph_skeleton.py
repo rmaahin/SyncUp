@@ -8,11 +8,11 @@ from agents.task_decomposition import task_decomposition
 from evaluators.equity_evaluator import equity_evaluator
 from evaluators.tone_evaluator import tone_evaluator
 from agents.progress_tracking import progress_tracking
+from agents.meeting_coordinator import meeting_coordinator
 from graph.main import (
     build_graph,
     graph,
     human_review,
-    meeting_coordinator,
     report_generator,
     supervisor,
 )
@@ -77,8 +77,8 @@ class TestPlaceholderNodes:
         result = conflict_resolution(SyncUpState())
         assert result["draft_intervention"] is None
 
-    def test_meeting_coordinator(self) -> None:
-        assert meeting_coordinator(SyncUpState()) == {}
+    async def test_meeting_coordinator(self) -> None:
+        assert await meeting_coordinator(SyncUpState()) == {}
 
     async def test_publishing(self) -> None:
         # Real agent returns early with failed status when delegation_matrix is empty.
