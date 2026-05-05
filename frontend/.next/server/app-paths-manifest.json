@@ -1,0 +1,11 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/page": "app/page.js",
+  "/professor/dashboard/page": "app/professor/dashboard/page.js",
+  "/professor/review/page": "app/professor/review/page.js",
+  "/professor/team/[id]/page": "app/professor/team/[id]/page.js",
+  "/student/onboarding/page": "app/student/onboarding/page.js",
+  "/student/settings/page": "app/student/settings/page.js",
+  "/student/dashboard/page": "app/student/dashboard/page.js",
+  "/student/peer-review/page": "app/student/peer-review/page.js"
+}

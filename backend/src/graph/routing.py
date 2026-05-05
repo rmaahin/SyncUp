@@ -10,7 +10,30 @@ from state.schema import SyncUpState
 
 
 def supervisor_router(state: "SyncUpState") -> str:
-    """Route from the supervisor to the appropriate worker node."""
+    """Route from the supervisor to the appropriate worker node.
+
+    Inspects state fields to determine the next phase of the pipeline.
+    Returns ``"__end__"`` when no further work is needed.
+    """
+    if state.pending_event is not None:
+        return "progress_tracking"
+    if state.meeting_mode is not None:
+        return "meeting_coordinator"
+    if state.project_brief and not state.task_array:
+        return "task_decomposition"
+    if state.task_array and not state.delegation_matrix:
+        return "delegation"
+    if state.needs_redelegation:
+        return "delegation"
+    if state.draft_intervention is not None:
+        return "conflict_resolution"
+    if (
+        state.delegation_matrix
+        and state.equity_result is not None
+        and state.equity_result.balanced
+        and state.publishing_status is None
+    ):
+        return "publishing"
     return "__end__"
 
 

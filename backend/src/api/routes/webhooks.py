@@ -210,6 +210,22 @@ async def _process_webhook_event(
         result.get("student_progress", {}),
     )
 
+    try:
+        from api.websockets import manager as ws_manager
+
+        await ws_manager.broadcast(
+            project_id,
+            {
+                "event": "contribution_logged",
+                "data": {
+                    "records_added": len(new_records),
+                    "student_progress": result.get("student_progress", {}),
+                },
+            },
+        )
+    except Exception:
+        logger.exception("WebSocket broadcast failed for webhook event")
+
     return {
         "status": "processed",
         "project_id": project_id,

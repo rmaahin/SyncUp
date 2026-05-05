@@ -62,13 +62,17 @@ app.add_middleware(
 )
 
 # Routers
+from api.routes.dashboard import router as dashboard_router  # noqa: E402
 from api.routes.onboarding import router as onboarding_router  # noqa: E402
 from api.routes.projects import router as projects_router  # noqa: E402
 from api.routes.webhooks import router as webhooks_router  # noqa: E402
+from api.websockets import router as ws_router  # noqa: E402
 
 app.include_router(onboarding_router, prefix="/api/onboarding", tags=["onboarding"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(webhooks_router, prefix="/api/webhooks", tags=["webhooks"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(ws_router, prefix="/api", tags=["websockets"])
 
 
 @app.get("/health")

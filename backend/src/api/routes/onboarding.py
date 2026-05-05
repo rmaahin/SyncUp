@@ -6,12 +6,16 @@ detection, project readiness checks, and OAuth linking stubs.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from state.schema import AvailabilityChange, DateRange, StudentProfile
+from state.schema import AvailabilityChange, DateRange, StudentProfile, SyncUpState
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -199,15 +203,19 @@ def get_profile(
     "/profile/{student_id}/availability",
     response_model=AvailabilityUpdateResponse,
 )
-def update_availability(
+async def update_availability(
     student_id: str,
     body: AvailabilityUpdateRequest,
+    request: Request,
     store: StudentStore = Depends(get_student_store),
 ) -> AvailabilityUpdateResponse:
     """Update a student's availability mid-project.
 
-    Detects significant changes (>=30% reduction in hours or new blackout
-    overlapping assigned deadlines) and flags for redelegation.
+    Detects significant changes (>=30% reduction in hours) and triggers
+    re-delegation: searches for the project containing this student, runs
+    the delegation agent + equity evaluator on the updated state, persists
+    the result, and broadcasts a ``redelegation_triggered`` event over
+    WebSocket.
     """
     profile = store.get(student_id)
     if profile is None:
@@ -238,7 +246,7 @@ def update_availability(
         triggered_redelegation=triggered_redelegation,
     )
 
-    # Update the profile
+    # Update the StudentStore profile
     updated_profile = profile.model_copy(
         update={
             "availability_hours_per_week": new_hours,
@@ -247,11 +255,94 @@ def update_availability(
     )
     store.update(student_id, updated_profile)
 
+    # Re-delegation side-effect (only on significant change)
+    if triggered_redelegation:
+        await _trigger_redelegation(request, student_id, updated_profile, change_record)
+
     return AvailabilityUpdateResponse(
         profile=updated_profile,
         triggered_redelegation=triggered_redelegation,
         change_record=change_record,
     )
+
+
+async def _trigger_redelegation(
+    request: Request,
+    student_id: str,
+    updated_profile: StudentProfile,
+    change_record: AvailabilityChange,
+) -> None:
+    """Find the student's project, re-run delegation + equity, broadcast event.
+
+    Silent no-op if the student is not part of any project in the state store.
+    Errors during agent invocation are logged but do not propagate, so the
+    availability update itself always succeeds.
+    """
+    state_store = getattr(request.app.state, "state_store", None)
+    if state_store is None:
+        logger.warning("No state_store on app.state; skipping re-delegation")
+        return
+
+    project_ids = await state_store.list_projects()
+    target_id: str | None = None
+    target_state: SyncUpState | None = None
+    for pid in project_ids:
+        s = await state_store.get(pid)
+        if s is not None and any(sp.student_id == student_id for sp in s.student_profiles):
+            target_id = pid
+            target_state = s
+            break
+
+    if target_id is None or target_state is None:
+        logger.info("Student %s not in any project; no re-delegation", student_id)
+        return
+
+    # Replace the student profile and append the audit record
+    new_profiles = [
+        updated_profile if sp.student_id == student_id else sp
+        for sp in target_state.student_profiles
+    ]
+    affected_task_ids = [
+        tid for tid, sid in target_state.delegation_matrix.items() if sid == student_id
+    ]
+    pre_state = target_state.model_copy(
+        update={
+            "student_profiles": new_profiles,
+            "availability_updates": list(target_state.availability_updates) + [change_record],
+            # Reset delegation so the agent re-runs cleanly
+            "delegation_matrix": {},
+        }
+    )
+
+    try:
+        from agents.delegation import delegation as delegation_fn
+        from evaluators.equity_evaluator import equity_evaluator as equity_fn
+
+        delegation_result = await asyncio.to_thread(delegation_fn, pre_state)
+        post_delegation = pre_state.model_copy(update=delegation_result)
+        equity_result = await asyncio.to_thread(equity_fn, post_delegation)
+        final_state = post_delegation.model_copy(update=equity_result)
+        await state_store.save(target_id, final_state)
+    except Exception as exc:
+        logger.exception("Re-delegation failed for project %s: %s", target_id, exc)
+        return
+
+    try:
+        from api.websockets import manager as ws_manager
+
+        await ws_manager.broadcast(
+            target_id,
+            {
+                "event": "redelegation_triggered",
+                "data": {
+                    "student_id": student_id,
+                    "project_id": target_id,
+                    "affected_task_ids": affected_task_ids,
+                },
+            },
+        )
+    except Exception:
+        logger.exception("WebSocket broadcast failed for re-delegation")
 
 
 @router.get(
