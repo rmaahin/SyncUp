@@ -3,6 +3,7 @@
 from state.reducers import append_reducer
 from state.schema import (
     AvailabilityChange,
+    BiasFlag,
     BurnDownTarget,
     ContributionRecord,
     DateRange,
@@ -11,17 +12,21 @@ from state.schema import (
     MeetingRecord,
     Milestone,
     PeerReview,
+    PeerReviewSummary,
     ProjectTimeline,
     RawMetrics,
     StudentProfile,
+    StudentReport,
     SyncUpState,
     Task,
     TaskStatus,
+    TeamReport,
     UrgencyLevel,
 )
 
 __all__ = [
     "AvailabilityChange",
+    "BiasFlag",
     "BurnDownTarget",
     "ContributionRecord",
     "DateRange",
@@ -30,12 +35,15 @@ __all__ = [
     "MeetingRecord",
     "Milestone",
     "PeerReview",
+    "PeerReviewSummary",
     "ProjectTimeline",
     "RawMetrics",
     "StudentProfile",
+    "StudentReport",
     "SyncUpState",
     "Task",
     "TaskStatus",
+    "TeamReport",
     "UrgencyLevel",
     "append_reducer",
 ]
