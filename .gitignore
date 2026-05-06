@@ -209,3 +209,6 @@ __marimo__/
 # Calude
 .claude/
 CLAUDE.md
+# Frontend build artifacts
+frontend/tsconfig.tsbuildinfo
+frontend/.next/
