@@ -156,8 +156,52 @@ class PeerReview(BaseModel):
     reviewer_id: str
     reviewee_id: str
     ratings: dict[str, int] = Field(default_factory=dict)
-    comments: str = ""
+    comments: dict[str, str] = Field(default_factory=dict)
     submitted_at: datetime
+
+
+class PeerReviewSummary(BaseModel):
+    """Aggregated peer-review statistics for one student."""
+
+    student_id: str
+    avg_per_dimension: dict[str, float] = Field(default_factory=dict)
+    overall_avg: float = 0.0
+    std_dev_per_dimension: dict[str, float] = Field(default_factory=dict)
+    review_count: int = 0
+
+
+class BiasFlag(BaseModel):
+    """A detected anomaly in peer-review patterns."""
+
+    flag_type: str  # "outlier_reviewer" | "targeted_low" | "inflation" | "retaliation"
+    reviewer_id: str
+    reviewee_id: Optional[str] = None
+    description: str
+    severity: str  # "low" | "medium" | "high"
+
+
+class StudentReport(BaseModel):
+    """Per-student section of the final TeamReport."""
+
+    student_id: str
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    peer_summary: Optional[PeerReviewSummary] = None
+    peer_bias_flags: list[BiasFlag] = Field(default_factory=list)
+    narrative: str = ""
+    strengths: list[str] = Field(default_factory=list)
+    areas_for_improvement: list[str] = Field(default_factory=list)
+
+
+class TeamReport(BaseModel):
+    """Final synthesized end-of-project report."""
+
+    project_id: str
+    completion_pct: float = 0.0
+    team_metrics: dict[str, Any] = Field(default_factory=dict)
+    student_reports: list[StudentReport] = Field(default_factory=list)
+    bias_flags: list[BiasFlag] = Field(default_factory=list)
+    team_narrative: str = ""
+    generated_at: datetime
 
 
 class AvailabilityChange(BaseModel):
@@ -254,6 +298,9 @@ class SyncUpState(BaseModel):
     )
 
     peer_review_data: list[PeerReview] = Field(default_factory=list)
+    peer_review_forms_generated: bool = False
+    peer_review_form_template: dict[str, Any] = Field(default_factory=dict)
+    team_report: Optional[TeamReport] = None
     project_timeline: ProjectTimeline = Field(default_factory=ProjectTimeline)
 
     # Publishing fields
